@@ -1,3 +1,4 @@
+
 // ─────────────────────────────────────────────────────────────
 // routes/threads.js
 //
@@ -19,49 +20,105 @@ import prisma from "../prisma/client.js"; // the singleton — already imported 
 const router = Router();
 
 // ⚠️ Delete this in-memory store once all four routes use Prisma.
-let nextId = 4;
-let threads = [
-  { id: 1, title: "Welcome to Threadbase", body: "Restart the server and I disappear.", createdAt: 1 },
-  { id: 2, title: "Swap me to Prisma", body: "Replace these handlers with prisma.thread.* calls.", createdAt: 2 },
-  { id: 3, title: "Then I will persist", body: "A real row survives a restart.", createdAt: 3 },
-];
-
+// We no longer need nextId or the threads array because
+// PostgreSQL + Prisma will store and generate the data.
+ 
 // GET /api/threads — return the whole list.
 // TODO: replace with  await prisma.thread.findMany()
-router.get("/", (req, res) => {
-  res.json([...threads].sort((a, b) => b.createdAt - a.createdAt));
+router.get("/", async (req, res, next) => {
+  try {
+    // Get all Thread rows from the PostgreSQL database.
+    const threads = await prisma.thread.findMany();
+
+    // Send the database rows back as JSON.
+    res.json(threads);
+  } catch (error) {
+    // Pass database errors to Express error handling.
+    next(error);
+  }
 });
 
 // POST /api/threads — create a thread from { title, body }.
 // TODO: replace with  await prisma.thread.create({ data: { title, body } })  → 201
-router.post("/", (req, res) => {
-  const { title, body = "" } = req.body || {};
-  const thread = { id: nextId++, title, body, createdAt: Date.now() };
-  threads.push(thread);
-  res.status(201).json(thread);
+router.post("/", async (req, res, next) => {
+  try {
+    // Get only the fields that we want the client to provide.
+    const { title, body = "" } = req.body || {};
+
+    // Create a new Thread row in PostgreSQL.
+    // The database generates the id and createdAt automatically.
+    const thread = await prisma.thread.create({
+      data: {
+        title: title,
+        body: body,
+      },
+    });
+
+    // 201 = resource successfully created.
+    res.status(201).json(thread);
+  } catch (error) {
+    // Pass database errors to Express error handling.
+    next(error);
+  }
 });
 
 // PUT /api/threads/:id — update title/body of one thread.
 // TODO: replace with  await prisma.thread.update({ where: { id: parseInt(...) }, data })
-router.put("/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const thread = threads.find((t) => t.id === id);
-  if (!thread) return res.status(404).json({ error: "Thread not found." });
-  const { title, body } = req.body || {};
-  if (title !== undefined) thread.title = title;
-  if (body !== undefined) thread.body = body;
-  res.status(200).json(thread);
+router.put("/:id", async (req, res, next) => {
+  try {
+    // req.params.id comes from the URL as a STRING.
+    // parseInt converts it to a NUMBER so it matches Prisma's Int id.
+    const id = parseInt(req.params.id);
+
+    // Get only the fields that we want to update.
+    const { title, body } = req.body || {};
+
+    // Update the Thread row with the matching id.
+    const thread = await prisma.thread.update({
+      // where identifies the exact row to update.
+      where: {
+        id: id,
+      },
+
+      // data contains the fields that should be changed.
+      data: {
+        title: title,
+        body: body,
+      },
+    });
+
+    // Return the updated thread.
+    res.status(200).json(thread);
+  } catch (error) {
+    // If the thread does not exist or another DB error occurs,
+    // forward the error to Express.
+    next(error);
+  }
 });
 
 // DELETE /api/threads/:id — remove one thread.
 // TODO: replace with  await prisma.thread.delete({ where: { id: parseInt(...) } })
 //       return 200 with the deleted record (this course's convention).
-router.delete("/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const before = threads.length;
-  threads = threads.filter((t) => t.id !== id);
-  if (threads.length === before) return res.status(404).json({ error: "Thread not found." });
-  res.status(200).json({ ok: true });
+router.delete("/:id", async (req, res, next) => {
+  try {
+    // req.params.id is a string, so convert it to an integer.
+    const id = parseInt(req.params.id);
+
+    // Delete the Thread row with the matching id.
+    // Prisma returns the deleted record.
+    const deleted = await prisma.thread.delete({
+      where: {
+        id: id,
+      },
+    });
+
+    // This assignment uses 200 + the deleted record.
+    res.status(200).json(deleted);
+  } catch (error) {
+    // Pass database errors to Express error handling.
+    next(error);
+  }
 });
 
 export default router;
+
